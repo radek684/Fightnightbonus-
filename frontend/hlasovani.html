@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fight Night Bonus – Podpora</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    /* Jednoduché styly, uprav si podle potřeby */
+    #payment-form {
+      max-width: 400px;
+      margin: 2rem auto;
+      padding: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    #payment-form input,
+    #payment-form button {
+      width: 100%;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+      padding: 0.5rem;
+    }
+    #payment-element {
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Podpoř svého borce</h1>
+
+  <form id="payment-form">
+    <label for="custom-amount">Zadej částku (Kč):</label>
+    <input
+      type="number"
+      id="custom-amount"
+      name="amount"
+      placeholder="Např. 50"
+      min="1"
+      required
+    />
+
+    <div id="payment-element"><!-- Stripe Payment Element se sem namontuje --></div>
+
+    <button type="submit" id="submit" disabled>
+      <span id="button-text">Načítám…</span>
+    </button>
+
+    <p id="error-message" role="alert" style="color: red;"></p>
+  </form>
+
+  <script type="module">
+    import { loadStripe } from 'https://js.stripe.com/v3/';
+
+    // Nahraď za svůj Publishable key z ENV nebo přímo zde:
+    const stripe = await loadStripe('pk_live_…');
+
+    const form = document.getElementById('payment-form');
+    const amountInput = document.getElementById('custom-amount');
+    const submitButton = document.getElementById('submit');
+    const buttonText = document.getElementById('button-text');
+    const errorMessage = document.getElementById('error-message');
+    let elements;
+
+    async function initialize(clientSecret) {
+      elements = stripe.elements({ clientSecret });
+      const paymentElement = elements.create('payment');
+      paymentElement.mount('#payment-element');
+
+      submitButton.disabled = false;
+      buttonText.textContent = 'Přispět';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      submitButton.disabled = true;
+      buttonText.textContent = 'Odesílám…';
+      errorMessage.textContent = '';
+
+      const amount = parseFloat(amountInput.value);
+      if (isNaN(amount) || amount < 1) {
+        errorMessage.textContent = 'Zadej částku větší než 0';
+        submitButton.disabled = false;
+        buttonText.textContent = 'Přispět';
+        return;
+      }
+
+      try {
+        const { clientSecret, error: initError } = await fetch(
+          '/.netlify/functions/createPaymentIntent',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount }),
+          }
+        ).then(r => r.json());
+
+        if (initError) throw new Error(initError);
+
+        await stripe.confirmPayment({
+          elements,
+          confirmParams: {
+            return_url: window.location.href + '?success=true',
+          },
+        });
+
+      } catch (err) {
+        console.error(err);
+        errorMessage.textContent = err.message;
+        submitButton.disabled = false;
+        buttonText.textContent = 'Přispět';
+      }
+    });
+
+    amountInput.addEventListener('change', async () => {
+      const amount = parseFloat(amountInput.value);
+      if (isNaN(amount) || amount < 1) return;
+      submitButton.disabled = true;
+      buttonText.textContent = 'Načítám…';
+      errorMessage.textContent = '';
+
+      const { clientSecret } = await fetch(
+        '/.netlify/functions/createPaymentIntent',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount }),
+        }
+      ).then(r => r.json());
+
+      await initialize(clientSecret);
+    });
+  </script>
+</body>
+</html>
